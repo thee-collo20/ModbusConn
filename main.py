@@ -139,6 +139,8 @@ class ModbusRegisterScanner:
         scrollbar.pack(side="right", fill="y")
         ttk.Label(outer, text=f"Successful scans are recorded in {DATABASE_PATH}",
                   foreground=MUTED).pack(anchor="w", pady=(8, 0))
+        ttk.Label(outer, text="A product of Kutswa Inc.™", foreground=MUTED,
+                  font=("Segoe UI", 9, "italic")).pack(anchor="center", pady=(4, 0))
 
     @staticmethod
     def _add_labeled_entry(parent: ttk.Frame, label: str, variable: tk.StringVar,
