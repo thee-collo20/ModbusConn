@@ -10,13 +10,14 @@ Only Modbus Function Code 03 (Read Holding Registers) is issued.
 
 from __future__ import annotations
 
+import csv
 import ipaddress
 import queue
 import sqlite3
 import tkinter as tk
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from pymodbus.client import ModbusTcpClient
@@ -119,6 +120,8 @@ class ModbusRegisterScanner:
         self.stop_button = ttk.Button(controls, text="Stop", command=self._stop_polling,
                                       state="disabled")
         self.stop_button.pack(side="left", padx=(8, 0))
+        self.export_button = ttk.Button(controls, text="Export to CSV", command=self._export_to_csv)
+        self.export_button.pack(side="left", padx=(8, 0))
         self.status_var = tk.StringVar(value="Idle. Connect to a local Modbus simulator.")
         self.status_label = ttk.Label(controls, textvariable=self.status_var, foreground=MUTED)
         self.status_label.pack(side="left", padx=(14, 0))
@@ -141,6 +144,69 @@ class ModbusRegisterScanner:
                   foreground=MUTED).pack(anchor="w", pady=(8, 0))
         ttk.Label(outer, text="A product of Kutswa Inc.™", foreground=MUTED,
                   font=("Segoe UI", 9, "italic")).pack(anchor="center", pady=(4, 0))
+
+    def _export_to_csv(self) -> None:
+        """Export all logged register samples to a user-selected CSV file."""
+        output_path = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Export Modbus Scan History",
+            defaultextension=".csv",
+            filetypes=(("CSV files", "*.csv"), ("All files", "*.*")),
+            initialfile="modbus_scan_history.csv",
+        )
+        if not output_path:
+            return
+
+        try:
+            # Query a consistent snapshot of all stored scans. The connection is
+            # read-only at the application level; exporting never changes the DB.
+            with sqlite3.connect(DATABASE_PATH, timeout=5) as connection:
+                rows = connection.execute("""
+                    SELECT timestamp_utc, host, port, unit_id,
+                           register_address, raw_value, scaled_value
+                    FROM register_samples
+                    ORDER BY timestamp_utc, id
+                """).fetchall()
+        except sqlite3.Error as exc:
+            messagebox.showerror(
+                "Export Error",
+                f"Could not read scan history from {DATABASE_PATH}:\n{exc}",
+                parent=self.root,
+            )
+            return
+
+        if not rows:
+            messagebox.showinfo(
+                "No Scan History",
+                "There are no logged register samples to export yet.",
+                parent=self.root,
+            )
+            return
+
+        headers = (
+            "timestamp_utc", "host", "port", "unit_id",
+            "register_address", "raw_value", "scaled_value",
+        )
+        try:
+            # newline="" is required by csv.writer to produce clean CSV line endings.
+            with open(output_path, "w", newline="", encoding="utf-8-sig") as csv_file:
+                writer = csv.writer(csv_file)
+                writer.writerow(headers)
+                writer.writerows(rows)
+        except (OSError, csv.Error) as exc:
+            messagebox.showerror(
+                "Export Error",
+                f"Could not write the CSV file. Check that the file is not open in "
+                f"another application and that you have permission to save it.\n\n{exc}",
+                parent=self.root,
+            )
+            return
+
+        messagebox.showinfo(
+            "Export Complete",
+            f"Exported {len(rows)} register samples to:\n{output_path}",
+            parent=self.root,
+        )
 
     @staticmethod
     def _add_labeled_entry(parent: ttk.Frame, label: str, variable: tk.StringVar,
